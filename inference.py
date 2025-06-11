@@ -3,6 +3,7 @@ import numpy as np
 import onnxruntime
 from utils import multiclass_nms, xywh2xyxy, draw_detections
 from config import MODEL_PATH
+from mqtt_client import MqttPublisher
 
 CONF_THRESH = 0.3
 IOU_THRESH = 0.45
@@ -44,9 +45,21 @@ def postprocess(output, input_image_shape, conf_thresh=0.3, iou_thresh=0.45):
     return boxes[indices], scores[indices], class_ids[indices]
 
 def main():
-    session = onnxruntime.InferenceSession(MODEL_PATH, providers=["CPUExecutionProvider"])
+    # Setup ONNX runtime with multithreading
+    session = onnxruntime.InferenceSession(
+        MODEL_PATH,
+        providers=["CPUExecutionProvider"]
+    )
+    session.set_providers(
+        ["CPUExecutionProvider"],
+        [{"intra_op_num_threads": 4}]
+    )
     input_name = session.get_inputs()[0].name
 
+    # Setup MQTT client
+    mqtt = MqttPublisher()
+
+    # Start camera
     cap = cv2.VideoCapture(0)
     if not cap.isOpened():
         print("❌ Could not open camera.")
@@ -62,14 +75,26 @@ def main():
         outputs = session.run(None, {input_name: img_input})
         boxes, scores, class_ids = postprocess(outputs, letterboxed_img.shape, CONF_THRESH, IOU_THRESH)
 
+        # Draw detections
         annotated = draw_detections(letterboxed_img, boxes, scores, class_ids)
         cv2.imshow("YOLOv8 - Person Detection", annotated)
+
+        # Publish detection center coordinates
+        for i, box in enumerate(boxes):
+            x1, y1, x2, y2 = box.astype(int)
+            cx = int((x1 + x2) / 2)
+            cy = int((y1 + y2) / 2)
+            payload = {"id": i, "x": cx, "y": cy}
+            mqtt.publish("pi/detections", payload)
 
         if cv2.waitKey(1) & 0xFF == ord("q"):
             break
 
+    # Cleanup
     cap.release()
     cv2.destroyAllWindows()
+    mqtt.client.loop_stop()
+    mqtt.client.disconnect()
 
 if __name__ == "__main__":
     main()

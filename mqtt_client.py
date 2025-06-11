@@ -6,7 +6,7 @@ import time
 import json
 
 # Config – update these as needed
-MQTT_BROKER = "192.168.1.100"  # Replace with your laptop's IP
+MQTT_BROKER = "192.168.1.102"  # Replace with your laptop's IP
 MQTT_PORT = 1883
 MQTT_TOPIC = "pi/detections"
 CLIENT_ID = "pi_client"
